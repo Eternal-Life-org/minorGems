@@ -261,6 +261,15 @@ class SimpleVector {
 		 */
 		void deallocateStringElements();
 
+        
+        /**
+		 * For vectors of char* elements (c-strings).
+         *
+         * Gets index of first string that matches with strcmp, or
+         * -1 if no match found.
+         */
+        int getMatchingStringIndex( char *inString );
+
 
 
 	protected:
@@ -289,6 +298,12 @@ inline SimpleVector<Type>::SimpleVector()
 template <class Type>
 inline SimpleVector<Type>::SimpleVector(int sizeEstimate)
 		: vectorName( "" ) {
+            if( sizeEstimate <= 0 ) {
+        // can't double 0 when vector needs to grow, so min size has to
+        // be 1
+        sizeEstimate = 1;
+        }
+    
 	elements = new Type[sizeEstimate];
 	numFilledElements = 0;
 	maxSize = sizeEstimate;
@@ -781,6 +796,17 @@ inline void SimpleVector<char*>::deallocateStringElements() {
         }
 
     deleteAll();
+    }
+
+
+template <>
+inline int SimpleVector<char*>::getMatchingStringIndex( char *inString ) {
+    for( int i=0; i<numFilledElements; i++ ) {
+        if( strcmp( elements[i], inString ) == 0 ) {
+            return i;
+            }
+        }
+    return -1;
     }
 
 

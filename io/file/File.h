@@ -110,6 +110,15 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdint.h>
+
+
+#ifndef WIN_32
+// windows doesn't support inttypes
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
+#endif
+
 
 #include <dirent.h>
 
@@ -316,6 +325,15 @@ class File {
 		 *   Must be destroyed by caller.
 		 */
 		char *getFullFileName( int *outLength = NULL );
+        	
+
+        /**
+         * Gets the absolute-path file from the platform-specific root
+         * of the filesystem.
+         * 
+         * Parameters and return value are the same as getFullFileName
+         */
+        char *getAbsoluteFileName( int *outLength = NULL );
 	
 
 
@@ -344,6 +362,8 @@ class File {
         // read a single int from this file
         // inDefaultValue returned if reading fails
         int readFileIntContents( int inDefaultValue );
+        
+        uint64_t readFileUInt64Contents( uint64_t inDefaultValue );
         
 
 
@@ -395,7 +415,8 @@ class File {
         //   false otherwise.
         char writeToFile( int inInt );
         
-        
+        char writeToFile( uint64_t inInt );
+             
 		
 	private:
 		Path *mPath;
@@ -828,19 +849,29 @@ inline timeSec_t File::getModificationTime() {
 
 
 
+#include "Directory.h"
+
+
+
 inline char File::remove() {
     char returnVal = false;
     
     if( exists() ) {
-		char *stringName = getFullFileName(); 
-
-		int error = ::remove( stringName );
-
-        if( error == 0 ) {
-            returnVal = true;
+        
+        if( isDirectory() ) {
+            returnVal = Directory::removeDirectory( this );
             }
+        else {
+            char *stringName = getFullFileName(); 
             
-		delete [] stringName;
+            int error = ::remove( stringName );
+            
+            if( error == 0 ) {
+                returnVal = true;
+                }
+            
+            delete [] stringName;
+            }
 		}
 
     return returnVal;
@@ -992,6 +1023,22 @@ inline char *File::getFullFileName( int *outLength ) {
 		}
 	
 	return returnString;
+    	}
+
+
+
+inline char *File::getAbsoluteFileName( int *outLength ) {
+    char *name = getFullFileName();
+    
+    char *absolutePath = Path::makeAbsolute( name );
+    
+    delete [] name;
+    
+    if( absolutePath != NULL && outLength != NULL ) {
+        *outLength = strlen( absolutePath );
+        }
+
+    return absolutePath;
 	}
 
 
@@ -1004,8 +1051,8 @@ inline char *File::getFullFileName( int *outLength ) {
 inline char *File::readFileContents() {
 
     int length;
-    // text mode!
-    unsigned char *data = readFileContents( &length, true );
+    // binary mode!
+    unsigned char *data = readFileContents( &length, false );
 
     if( data == NULL ) {
         return NULL;
@@ -1032,6 +1079,32 @@ inline int File::readFileIntContents( int inDefaultValue ) {
     int val;
     
     int numRead = sscanf( cont, "%d", &val );
+        
+    delete [] cont;
+
+    if( numRead != 1 ) {
+        return inDefaultValue;
+        }
+
+    return val;
+    }
+
+
+
+inline uint64_t File::readFileUInt64Contents( uint64_t inDefaultValue ) {
+    char *cont = readFileContents();
+    
+    if( cont == NULL ) {
+        return inDefaultValue;
+        }
+    
+    uint64_t val;
+    
+    #ifdef WIN32
+    int numRead = sscanf( cont, "%I64u", &val );
+    #else
+    int numRead = sscanf( cont, "%" SCNu64, &val );
+    #endif
     
     delete [] cont;
 
@@ -1102,6 +1175,22 @@ inline char File::writeToFile( int inInt ) {
 
 
 
+inline char File::writeToFile( uint64_t inInt ) {
+    #ifdef WIN32
+    char *stringVal = autoSprintf( "%I64u", inInt );
+    #else
+    char *stringVal = autoSprintf( "%" PRIu64, inInt );
+    #endif
+    
+    char returnVal = writeToFile( stringVal );
+
+    delete [] stringVal;
+
+    return returnVal;
+    }
+
+
+
 inline char File::writeToFile( unsigned char *inData, int inLength ) {
     FileOutputStream *output = new FileOutputStream( this );
 
@@ -1120,7 +1209,6 @@ inline char File::writeToFile( unsigned char *inData, int inLength ) {
 
 
 
-#include "Directory.h"
 
 
 

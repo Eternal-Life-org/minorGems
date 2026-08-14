@@ -17,6 +17,8 @@
 #include "minorGems/io/file/Path.h"
 #include "minorGems/util/stringUtils.h"
 
+#include <stdlib.h>
+
 
 
 /*
@@ -75,3 +77,7 @@ char Path::isRoot( const char *inPathString ) {
     }
 
 
+
+char *Path::makeAbsolute( const char *inPathString ) {
+    return realpath( inPathString, NULL );
+    }

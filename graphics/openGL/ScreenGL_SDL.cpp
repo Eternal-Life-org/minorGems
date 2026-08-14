@@ -1859,11 +1859,8 @@ void ScreenGL::start() {
 
             switch( event.type ) {
                 case SDL_QUIT: {
-                    // map to 27, escape
-                    int mouseX, mouseY;
-                    SDL_GetMouseState( &mouseX, &mouseY );
-
-                    callbackKeyboard( 27, mouseX, mouseY );
+                    // 直接退出，不再映射到ESC触发暂停界面
+                    exit( 0 );
                     }
                     break;
                 case SDL_KEYDOWN:
@@ -1917,11 +1914,35 @@ void ScreenGL::start() {
                             if (event.key.keysym.sym == SDLK_SPACE) {
                                 // On Linux, ctrl+space is ambiguously 0.
                                 asciiKey = ' ';
+                                scanCodeMap[event.key.keysym.scancode] = asciiKey;
                                 }
-                            else if ((u & 0xFF80) == 0) { // Ignore anything outside of 7-bit ASCII.
+                            else if ((u & 0xFF80) == 0) {
                                 asciiKey = (u & 0x7F);
+                                scanCodeMap[event.key.keysym.scancode] = asciiKey;
                                 }
-                            scanCodeMap[event.key.keysym.scancode] = asciiKey;
+                            else if (u != 0) {
+                                // Non-ASCII Unicode character (e.g., Chinese).
+                                // Convert to UTF-8 and send each byte separately
+                                // so multi-byte characters work in text fields.
+                                unsigned char utf8[4];
+                                int utf8Len = 0;
+                                if (u < 0x800) {
+                                    utf8[0] = 0xC0 | (u >> 6);
+                                    utf8[1] = 0x80 | (u & 0x3F);
+                                    utf8Len = 2;
+                                    }
+                                else {
+                                    utf8[0] = 0xE0 | (u >> 12);
+                                    utf8[1] = 0x80 | ((u >> 6) & 0x3F);
+                                    utf8[2] = 0x80 | (u & 0x3F);
+                                    utf8Len = 3;
+                                    }
+                                scanCodeMap[event.key.keysym.scancode] =
+                                    utf8[utf8Len - 1];
+                                for (int i = 0; i < utf8Len; i++) {
+                                    callbackKeyboard(utf8[i], mouseX, mouseY);
+                                    }
+                                }
                             }
                         else {
                                 asciiKey = scanCodeMap[event.key.keysym.scancode];
@@ -2024,13 +2045,8 @@ void ScreenGL::start() {
                 else {
                     switch( event.type ) {
                         case SDL_QUIT: {
-                            // map to 27, escape
-                            int mouseX, mouseY;
-                            SDL_GetMouseState( &mouseX, &mouseY );
-                            
-                            // actual quit event, still pass through 
-                            // as ESC to signal a full quit
-                            callbackKeyboard( 27, mouseX, mouseY );
+                            // 直接退出，不再映射到ESC触发暂停界面
+                            exit( 0 );
                             }
                             break;
                         case SDL_KEYDOWN: {

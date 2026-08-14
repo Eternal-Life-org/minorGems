@@ -911,6 +911,25 @@ static void playSoundSpriteInternal(
     
     SoundSprite *s = (SoundSprite*)inHandle;
     
+
+    if( s->numSamples / soundSampleRate > 5 ) {
+        // a long sound, longer than 5 seconds total
+        // perhaps a bit of music or some other structured sound
+        // instead of an instant "hit" type sound
+        // Don't ever play more than one instance of a longer sound
+        // simultaneously.
+        
+        for( int i=0; i<playingSoundSprites.size(); i++ ) {
+            if( playingSoundSprites.getElement(i)->handle ==
+                s->handle ) {
+                // already playing this sound sprite
+                return;
+            }
+        }
+    }
+    
+
+
     if( ! s->noVariance ) {
         
         if( inForceVolume == -1 ) {
@@ -1518,6 +1537,8 @@ int mainFunction( int inNumArgs, char **inArgs ) {
         }
     
     int sdlResult = SDL_Init( flags );
+    AppLog::setLog( new FileLog( "log.txt" ) );
+    AppLog::setLoggingLevel( Log::DETAIL_LEVEL );
 
 
     // do this mac check after initing SDL,
@@ -1533,19 +1554,22 @@ int mainFunction( int inNumArgs, char **inArgs ) {
         // arg 0 is the path to the app executable
         char *appDirectoryPath = stringDuplicate( inArgs[0] );
     
-        char *bundleName = autoSprintf( "%s_%d.app", 
+        char *bundleName = autoSprintf( "%s_v%d.app", 
                                         getAppName(), getAppVersion() );
 
         char *appNamePointer = strstr( appDirectoryPath, bundleName );
+        AppLog::info( appDirectoryPath );
+        AppLog::info( bundleName );
 
         if( appNamePointer != NULL ) {
             // terminate full app path to get parent directory
             appNamePointer[0] = '\0';
-            
+            AppLog::info( "chdir" );
             chdir( appDirectoryPath );
             }
-                
-        
+        AppLog::info( appDirectoryPath );
+
+
         if( ! isSettingsFolderFound() ) {
             // first, try setting dir based on preferences file
             char *prefFilePath = getPrefFilePath();
@@ -1659,8 +1683,6 @@ int mainFunction( int inNumArgs, char **inArgs ) {
 
         
 
-    AppLog::setLog( new FileLog( "log.txt" ) );
-    AppLog::setLoggingLevel( Log::DETAIL_LEVEL );
     
     AppLog::info( "New game starting up" );
     
@@ -5470,12 +5492,35 @@ void launchURL( char *inURL ) {
 char *getClipboardText() {
     char *fromClipboard = NULL;
     if( OpenClipboard( NULL ) ) {
-        HANDLE hData = GetClipboardData( CF_TEXT );
-        char *buffer = (char*)GlobalLock( hData );
-        if( buffer != NULL ) {
-            fromClipboard = stringDuplicate( buffer );
+        // read as Unicode and convert to UTF-8
+        // (CF_TEXT would give us ANSI bytes, which mangles
+        //  non-ASCII text like Chinese)
+        HANDLE hData = GetClipboardData( CF_UNICODETEXT );
+        if( hData != NULL ) {
+            wchar_t *buffer = (wchar_t*)GlobalLock( hData );
+            if( buffer != NULL ) {
+                int utf8Len = WideCharToMultiByte(
+                    CP_UTF8, 0, buffer, -1, NULL, 0, NULL, NULL );
+                if( utf8Len > 0 ) {
+                    fromClipboard = new char[ utf8Len ];
+                    WideCharToMultiByte( CP_UTF8, 0, buffer, -1,
+                                         fromClipboard, utf8Len,
+                                         NULL, NULL );
+                    }
+                GlobalUnlock( hData );
+                }
             }
-        GlobalUnlock( hData );
+        else {
+            // no unicode text on the clipboard, try plain ANSI text
+            HANDLE aData = GetClipboardData( CF_TEXT );
+            if( aData != NULL ) {
+                char *buffer = (char*)GlobalLock( aData );
+                if( buffer != NULL ) {
+                    fromClipboard = stringDuplicate( buffer );
+                    GlobalUnlock( aData );
+                    }
+                }
+            }
         CloseClipboard();
         }
 
@@ -5487,16 +5532,24 @@ char *getClipboardText() {
     }
 
 
-void setClipboardText( const char *inText  ) {
-    if (OpenClipboard(NULL)) {
+void setClipboardText( const char *inText ) {
+    if( OpenClipboard(NULL) ) {
+        // store as Unicode converted from our UTF-8 text
+        int wideLen = MultiByteToWideChar( CP_UTF8, 0, inText, -1,
+                                           NULL, 0 );
+        if( wideLen > 0 ) {
+            HGLOBAL clipBuffer = GlobalAlloc(
+                GMEM_MOVEABLE, wideLen * sizeof( wchar_t ) );
+            wchar_t *buffer = (wchar_t*)GlobalLock( clipBuffer );
+            if( buffer != NULL ) {
+                MultiByteToWideChar( CP_UTF8, 0, inText, -1,
+                                     buffer, wideLen );
+                GlobalUnlock( clipBuffer );
 
-        EmptyClipboard();
-        HGLOBAL clipBuffer = GlobalAlloc( GMEM_DDESHARE, strlen(inText) + 1 );
-        char *buffer = (char*)GlobalLock( clipBuffer );
-        
-        strcpy( buffer, inText );
-        GlobalUnlock( clipBuffer );
-        SetClipboardData( CF_TEXT, clipBuffer );
+                EmptyClipboard();
+                SetClipboardData( CF_UNICODETEXT, clipBuffer );
+                }
+            }
         CloseClipboard();
         }
     }
