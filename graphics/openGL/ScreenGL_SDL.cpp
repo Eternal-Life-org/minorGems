@@ -166,6 +166,15 @@
 #include "minorGems/game/platforms/SDL/mac/SDLMain_Ext.h"
 #endif
 
+#ifdef WIN_32
+// Windows IME support (for typing Chinese/Japanese/Korean into text fields).
+// SDL 1.2 ignores IME composition messages, so we subclass the SDL window
+// and feed committed IME text through the keyboard callback ourselves.
+#include <windows.h>
+#include <imm.h>
+#include <SDL/SDL_syswm.h>
+#endif
+
 #ifdef RASPBIAN
 
 #include "RaspbianGLSurface.cpp"
@@ -204,6 +213,71 @@ static char keyMapOn = true;
 
 // FOVMOD NOTE:  Change 1/3 - Take these lines during the merge process
 long timeSinceLastFrameMS = 0;
+
+
+#ifdef WIN_32
+// original window procedure, saved when we subclass the SDL window
+static WNDPROC sOriginalWndProc = NULL;
+
+
+// delivers one Unicode code point to the text field stack
+// as UTF-8 bytes through the keyboard callback
+static void imeSendCodePoint( unsigned int inCP ) {
+    unsigned char utf8[4];
+    int utf8Len = 0;
+
+    if( inCP < 0x80 ) {
+        utf8[0] = (unsigned char)inCP;
+        utf8Len = 1;
+        }
+    else if( inCP < 0x800 ) {
+        utf8[0] = 0xC0 | ( inCP >> 6 );
+        utf8[1] = 0x80 | ( inCP & 0x3F );
+        utf8Len = 2;
+        }
+    else {
+        // BMP (3-byte UTF-8) covers CJK input
+        utf8[0] = 0xE0 | ( inCP >> 12 );
+        utf8[1] = 0x80 | ( ( inCP >> 6 ) & 0x3F );
+        utf8[2] = 0x80 | ( inCP & 0x3F );
+        utf8Len = 3;
+        }
+
+    int mouseX, mouseY;
+    SDL_GetMouseState( &mouseX, &mouseY );
+
+    for( int i=0; i<utf8Len; i++ ) {
+        callbackKeyboard( utf8[i], mouseX, mouseY );
+        }
+    }
+
+
+static LRESULT CALLBACK imeAwareWndProc( HWND hwnd, UINT msg,
+                                         WPARAM wParam, LPARAM lParam ) {
+    if( msg == WM_IME_COMPOSITION && ( lParam & GCS_RESULTSTR ) != 0 ) {
+        // IME has committed final text
+        HIMC himc = ImmGetContext( hwnd );
+        if( himc != NULL ) {
+            int byteLen = ImmGetCompositionStringW( himc, GCS_RESULTSTR,
+                                                    NULL, 0 );
+            if( byteLen > 0 ) {
+                int wlen = byteLen / 2;
+                wchar_t *wbuf = new wchar_t[ wlen + 1 ];
+                ImmGetCompositionStringW( himc, GCS_RESULTSTR,
+                                          wbuf, byteLen );
+                for( int c=0; c<wlen; c++ ) {
+                    imeSendCodePoint( (unsigned int)wbuf[c] );
+                    }
+                delete [] wbuf;
+                }
+            ImmReleaseContext( hwnd, himc );
+            return 0;
+            }
+        }
+    return CallWindowProc( sOriginalWndProc, hwnd, msg, wParam, lParam );
+    }
+#endif
+
 
 // prototypes
 /*
@@ -1052,6 +1126,18 @@ void ScreenGL::setupSurface() {
 	glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
 	glCullFace( GL_BACK );
 	glFrontFace( GL_CCW );
+
+#ifdef WIN_32
+    if( screen != NULL ) {
+        // subclass the window so we can intercept IME messages
+        SDL_SysWMinfo wmInfo;
+        SDL_VERSION( &( wmInfo.version ) );
+        if( SDL_GetWMInfo( &wmInfo ) ) {
+            sOriginalWndProc = (WNDPROC)SetWindowLongPtr(
+                wmInfo.window, GWL_WNDPROC, (LONG_PTR)imeAwareWndProc );
+            }
+        }
+#endif
     }
 
 
