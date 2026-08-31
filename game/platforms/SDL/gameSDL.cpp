@@ -5492,12 +5492,35 @@ void launchURL( char *inURL ) {
 char *getClipboardText() {
     char *fromClipboard = NULL;
     if( OpenClipboard( NULL ) ) {
-        HANDLE hData = GetClipboardData( CF_TEXT );
-        char *buffer = (char*)GlobalLock( hData );
-        if( buffer != NULL ) {
-            fromClipboard = stringDuplicate( buffer );
+        // read as Unicode and convert to UTF-8
+        // (CF_TEXT would give us ANSI bytes, which mangles
+        //  non-ASCII text like Chinese)
+        HANDLE hData = GetClipboardData( CF_UNICODETEXT );
+        if( hData != NULL ) {
+            wchar_t *buffer = (wchar_t*)GlobalLock( hData );
+            if( buffer != NULL ) {
+                int utf8Len = WideCharToMultiByte(
+                    CP_UTF8, 0, buffer, -1, NULL, 0, NULL, NULL );
+                if( utf8Len > 0 ) {
+                    fromClipboard = new char[ utf8Len ];
+                    WideCharToMultiByte( CP_UTF8, 0, buffer, -1,
+                                         fromClipboard, utf8Len,
+                                         NULL, NULL );
+                    }
+                GlobalUnlock( hData );
+                }
             }
-        GlobalUnlock( hData );
+        else {
+            // no unicode text on the clipboard, try plain ANSI text
+            HANDLE aData = GetClipboardData( CF_TEXT );
+            if( aData != NULL ) {
+                char *buffer = (char*)GlobalLock( aData );
+                if( buffer != NULL ) {
+                    fromClipboard = stringDuplicate( buffer );
+                    GlobalUnlock( aData );
+                    }
+                }
+            }
         CloseClipboard();
         }
 
@@ -5509,16 +5532,24 @@ char *getClipboardText() {
     }
 
 
-void setClipboardText( const char *inText  ) {
-    if (OpenClipboard(NULL)) {
+void setClipboardText( const char *inText ) {
+    if( OpenClipboard(NULL) ) {
+        // store as Unicode converted from our UTF-8 text
+        int wideLen = MultiByteToWideChar( CP_UTF8, 0, inText, -1,
+                                           NULL, 0 );
+        if( wideLen > 0 ) {
+            HGLOBAL clipBuffer = GlobalAlloc(
+                GMEM_MOVEABLE, wideLen * sizeof( wchar_t ) );
+            wchar_t *buffer = (wchar_t*)GlobalLock( clipBuffer );
+            if( buffer != NULL ) {
+                MultiByteToWideChar( CP_UTF8, 0, inText, -1,
+                                     buffer, wideLen );
+                GlobalUnlock( clipBuffer );
 
-        EmptyClipboard();
-        HGLOBAL clipBuffer = GlobalAlloc( GMEM_DDESHARE, strlen(inText) + 1 );
-        char *buffer = (char*)GlobalLock( clipBuffer );
-        
-        strcpy( buffer, inText );
-        GlobalUnlock( clipBuffer );
-        SetClipboardData( CF_TEXT, clipBuffer );
+                EmptyClipboard();
+                SetClipboardData( CF_UNICODETEXT, clipBuffer );
+                }
+            }
         CloseClipboard();
         }
     }

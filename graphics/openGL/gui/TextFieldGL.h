@@ -361,10 +361,8 @@ inline void TextFieldGL::keyPressed(
 		}
 	// allowable character key, from space up to tilde, then extended ascii
     // ignore after length limit reached
-	else if( ( (inKey >= 32 && inKey <= 126)
-               ||
-               (inKey >= 160 ) )
-             && 
+	else if( inKey >= 32
+             &&
              ( mLengthLimit < 0 || (int)strlen( mString ) < mLengthLimit ) ) {
 		// add a character to our string
 

@@ -32,43 +32,56 @@ const unsigned char inkA = 127;
 
 unicode utf8ToCodepoint(const unsigned char *&p)
 {
-    unicode codepoint = 0;
-    if ((*p & 0x80) == 0)
+    int len = 1;
+    unicode codepoint = *p;
+
+    if ((*p & 0xE0) == 0xC0)
     {
-        codepoint = *p;
-        p++;
-    }
-    else if ((*p & 0xE0) == 0xC0)
-    {
-        codepoint = (*p & 0x1F) << 6;
-        p++;
-        codepoint |= (*p & 0x3F);
-        p++;
+        len = 2;
+        codepoint = *p & 0x1F;
     }
     else if ((*p & 0xF0) == 0xE0)
     {
-        codepoint = (*p & 0x0F) << 12;
-        p++;
-        codepoint |= (*p & 0x3F) << 6;
-        p++;
-        codepoint |= (*p & 0x3F);
-        p++;
+        len = 3;
+        codepoint = *p & 0x0F;
     }
     else if ((*p & 0xF8) == 0xF0)
     {
-        codepoint = (*p & 0x07) << 18;
-        p++;
-        codepoint |= (*p & 0x3F) << 12;
-        p++;
-        codepoint |= (*p & 0x3F) << 6;
-        p++;
-        codepoint |= (*p & 0x3F);
-        p++;
+        len = 4;
+        codepoint = *p & 0x07;
     }
-    else
+    else if ((*p & 0x80) != 0)
     {
-        std::cout << "Not UTF-8: " << (char)*p << ',' << (int)*p << ',' << std::endl;
+        // invalid lead byte
         p++;
+        return 0;
+    }
+
+    if (len > 1)
+    {
+        // the bytes after the lead must all be continuation bytes,
+        // otherwise the sequence is invalid and only the lead is skipped
+        // (this also prevents reading past the end of the string)
+        for (int i = 1; i < len; i++)
+        {
+            if ((p[i] & 0xC0) != 0x80)
+            {
+                p++;
+                return 0;
+            }
+        }
+        for (int i = 1; i < len; i++)
+        {
+            codepoint = (unicode)((codepoint << 6) | (p[i] & 0x3F));
+        }
+    }
+
+    p += len;
+
+    if (len == 4)
+    {
+        // outside the Basic Multilingual Plane, no texture slot for it
+        return 0;
     }
     return codepoint;
 }
