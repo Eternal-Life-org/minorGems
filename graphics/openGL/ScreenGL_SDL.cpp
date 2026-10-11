@@ -219,6 +219,10 @@ long timeSinceLastFrameMS = 0;
 // original window procedure, saved when we subclass the SDL window
 static WNDPROC sOriginalWndProc = NULL;
 
+// true while the current key-down was claimed by the IME (VK_PROCESSKEY);
+// used to distinguish IME pass-through WM_CHAR from native key repeats
+static int sIMEClaimedKey = 0;
+
 
 // delivers one Unicode code point to the text field stack
 // as UTF-8 bytes through the keyboard callback
@@ -254,6 +258,46 @@ static void imeSendCodePoint( unsigned int inCP ) {
 
 static LRESULT CALLBACK imeAwareWndProc( HWND hwnd, UINT msg,
                                          WPARAM wParam, LPARAM lParam ) {
+    if( msg == WM_KEYDOWN && wParam == VK_PROCESSKEY ) {
+        // IME claimed the key: the pump's TranslateMessage now drives
+        // composition, and the resulting backspace arrives as WM_CHAR
+        sIMEClaimedKey = 1;
+        }
+    else if( msg == WM_KEYDOWN ) {
+        sIMEClaimedKey = 0;
+        }
+
+    if( msg == WM_CHAR && wParam == 0x08 ) {
+        // Backspace reaching us as WM_CHAR.  Two cases:
+        // - IME claimed the key (Chinese mode) and passes it through as
+        //   WM_CHAR: SDL never saw it, so synthesize the SDL backspace.
+        // - Native VK_BACK: SDL already produced the keydown, so swallow
+        //   the duplicate here.
+        if( sIMEClaimedKey ) {
+            SDL_Event down, up;
+            memset( &down, 0, sizeof( down ) );
+            memset( &up, 0, sizeof( up ) );
+            down.type = SDL_KEYDOWN;
+            down.key.keysym.sym = SDLK_BACKSPACE;
+            down.key.keysym.mod = KMOD_NONE;
+            down.key.keysym.unicode = 8;
+            up.type = SDL_KEYUP;
+            up.key.keysym.sym = SDLK_BACKSPACE;
+            up.key.keysym.mod = KMOD_NONE;
+            up.key.keysym.unicode = 8;
+            SDL_PushEvent( &down );
+            SDL_PushEvent( &up );
+            }
+        sIMEClaimedKey = 0;
+        return 0;
+        }
+
+    if( msg == WM_IME_CHAR && wParam > 0xFF ) {
+        // composed char delivered as a message (Unicode in wParam)
+        imeSendCodePoint( (unsigned int)wParam );
+        return 0;
+        }
+
     if( msg == WM_IME_COMPOSITION && ( lParam & GCS_RESULTSTR ) != 0 ) {
         // IME has committed final text
         HIMC himc = ImmGetContext( hwnd );
