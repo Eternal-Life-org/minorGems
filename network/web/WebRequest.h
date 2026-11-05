@@ -26,9 +26,12 @@ class WebRequest {
         //   step() will return -1.
         //   Set to -1 for no timeout (will wait forever for request to 
         //   complete).  Defaults to -1
+        // inMaxResponseBytes caps the entire HTTP response, including headers.
+        //   step() returns -1 before buffering beyond the cap. -1 means no cap.
         WebRequest( const char *inMethod, const char *inURL,
                     const char *inBody, const char *inProxy = NULL,
-                    double inTimeoutSeconds = -1 );
+                    double inTimeoutSeconds = -1,
+                    int inMaxResponseBytes = -1 );
         
 
         // if request is not complete, destruction cancels it
@@ -44,6 +47,9 @@ class WebRequest {
         // gets the number of bytes downloaded for the request so far
         // note that this is only an estimate of result data size
         int getProgressSize();
+
+        // 0 if the response status line has not been parsed or is malformed.
+        int getHTTPStatusCode() const;
         
 
         // gets the response body as a \0-terminated string
@@ -80,6 +86,8 @@ class WebRequest {
 
         double mRequestStartTime;
         double mRequestTimeoutSeconds;
+        int mMaxResponseBytes;
+        int mHTTPStatusCode;
     };
 
 

@@ -11,12 +11,13 @@
 
 WebRequest::WebRequest( const char *inMethod, const char *inURL,
                         const char *inBody, const char *inProxy,
-                        double inTimeoutSeconds )
+                        double inTimeoutSeconds, int inMaxResponseBytes )
         : mError( false ), mURL( stringDuplicate( inURL ) ),
           mRequest( NULL ), mRequestPosition( -1 ),
           mResultReady( false ), mResult( NULL ),
           mSock( NULL ), mRequestStartTime( Time::getCurrentTime() ),
-          mRequestTimeoutSeconds( inTimeoutSeconds ) {
+          mRequestTimeoutSeconds( inTimeoutSeconds ),
+          mMaxResponseBytes( inMaxResponseBytes ), mHTTPStatusCode( 0 ) {
         
     
     
@@ -335,6 +336,12 @@ int WebRequest::step() {
                 numRead = mSock->receive( buffer, bufferLength, 0 );
                 
                 if( numRead > 0 ) {
+                    if( mMaxResponseBytes >= 0 &&
+                        (long)mResponse.size() + numRead > mMaxResponseBytes ) {
+                        mError = true;
+                        delete [] buffer;
+                        return -1;
+                        }
                     for( int i=0; i<numRead; i++ ) {
                         mResponse.push_back( buffer[i] );
                         }
@@ -352,6 +359,23 @@ int WebRequest::step() {
                 
                 char *responseString = mResponse.getElementString();
                 int responseLength = mResponse.size();
+
+                // Parse fixed ASCII fields without integer conversion of
+                // untrusted text (including arbitrarily long status numbers).
+                if( responseLength >= 13 &&
+                    memcmp( responseString, "HTTP/", 5 ) == 0 &&
+                    responseString[5] >= '0' && responseString[5] <= '9' &&
+                    responseString[6] == '.' &&
+                    responseString[7] >= '0' && responseString[7] <= '9' &&
+                    responseString[8] == ' ' &&
+                    responseString[9] >= '1' && responseString[9] <= '5' &&
+                    responseString[10] >= '0' && responseString[10] <= '9' &&
+                    responseString[11] >= '0' && responseString[11] <= '9' &&
+                    ( responseString[12] == ' ' || responseString[12] == '\r' ) ) {
+                    mHTTPStatusCode = ( responseString[9] - '0' ) * 100 +
+                        ( responseString[10] - '0' ) * 10 +
+                        responseString[11] - '0';
+                    }
                 
                 if( stringLocateIgnoreCase( responseString, "404 Not Found" ) 
                     != NULL ) {
@@ -359,9 +383,7 @@ int WebRequest::step() {
                     mError = true;
                     delete [] responseString;
 
-                    printf( "Error:  "
-                            "WebRequest got 404 Not Found error for URL:  %s",
-                            mURL );
+                    printf( "Error:  WebRequest got 404 Not Found\n" );
                     
                     return -1;
                     }
@@ -400,9 +422,7 @@ int WebRequest::step() {
                 else {
                     mError = true;
 
-                    printf( "Error:  "
-                            "WebRequest got badly formatted response:\n%s\n",
-                            responseString );
+                    printf( "Error:  WebRequest got badly formatted response\n" );
 
                     delete [] responseString;
                     
@@ -432,6 +452,10 @@ int WebRequest::step() {
 
 int WebRequest::getProgressSize() {
     return mResponse.size();
+    }
+
+int WebRequest::getHTTPStatusCode() const {
+    return mHTTPStatusCode;
     }
 
 
